@@ -10,14 +10,14 @@ import android.provider.OpenableColumns;
 import java.io.File;
 import java.io.FileNotFoundException;
 
-/** Serves the prepared addon file from cache/addons to Minecraft (read-only). */
+/** Serves an addon from the app library (files/library) to Minecraft, read-only. */
 public class AddonProvider extends ContentProvider {
     static final String AUTH = "th.top.addonloader.files";
 
     private File file(Uri u) {
         String n = u.getLastPathSegment();
         if (n == null || n.contains("/") || n.contains("..")) return null;
-        File f = new File(new File(getContext().getCacheDir(), "addons"), n);
+        File f = new File(new File(getContext().getFilesDir(), "library"), n);
         return f.isFile() ? f : null;
     }
 
