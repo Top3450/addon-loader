@@ -98,6 +98,8 @@ S.demoProject = () => {
   S.genAnims(m, ['attack']);
   const sw = S.newAsset('item', 'flat', 'ruby_sword', 'ดาบทับทิม'); sw.nameEn = 'Ruby Sword';
   Object.assign(sw.cfg, { damage: 7, durability: 500, handheld: true, category: 'equipment', recipe: { on: true, grid: ['', 'minecraft:redstone', '', '', 'minecraft:redstone', '', '', 'minecraft:stick', ''], count: 1 } });
+  sw.code = { use: 'effect @s speed 5 1\nparticle minecraft:totem_particle ~ ~1 ~', hit: 'summon lightning_bolt ~ ~ ~' };
+  m.code = { every: 5, interact: 'give @s apple 1', tick: 'effect @a[r=4] regeneration 2 0 true' };
   const cv = S.texCanvas(sw), x = cv.getContext('2d'); x.clearRect(0, 0, 16, 16);
   for (let i = 0; i < 9; i++) { x.fillStyle = i % 3 ? '#c0392b' : '#ff6f5e'; x.fillRect(4 + i, 11 - i, 1, 1); x.fillStyle = '#7a1414'; x.fillRect(5 + i, 11 - i, 1, 1); }
   x.fillStyle = '#e8c48a'; [[3, 10], [4, 11], [5, 12], [2, 9], [6, 13]].forEach(([a, b]) => x.fillRect(a, b, 1, 1));
@@ -192,6 +194,7 @@ UI.stage = () => {
   if (!a) info.textContent = '';
   else if (UI.tab === 'paint') info.textContent = paint2d ? `${a.tex.w}×${a.tex.h}px • นิ้วเดียววาด • สองนิ้วเลื่อน/ซูม` : 'ระบายบนโมเดล • สองนิ้วหมุน/ซูม';
   else if (UI.tab === 'anim') info.textContent = 'แตะโมเดลเพื่อเลือกกระดูก';
+  else if (UI.tab === 'code') info.textContent = 'พิมพ์คำสั่งว่า ' + (a.name || a.key) + ' ทำอะไรได้';
   else info.textContent = a.kind === 'entity' || a.cfg.custom ? 'แตะกล่องเพื่อเลือก • ลากหมุน • สองนิ้วเลื่อน/ซูม' : 'ลากหมุน • สองนิ้วซูม';
   UI.applyPose();
 };
@@ -212,7 +215,7 @@ UI.render = () => {
   const p = panel(), sc = p.scrollTop;
   UI.header();
   if (!S.P || !S.A()) { p.replaceChildren(note('ยังไม่ได้เปิดโปรเจกต์'), btn('📁 เปิด/สร้างโปรเจกต์', UI.home, 'pri')); return; }
-  const f = { model: UI.pModel, paint: UI.pPaint, anim: UI.pAnim, cfg: UI.pCfg, export: UI.pExport }[UI.tab];
+  const f = { model: UI.pModel, paint: UI.pPaint, anim: UI.pAnim, cfg: UI.pCfg, code: UI.pCode, export: UI.pExport }[UI.tab];
   p.replaceChildren(...[].concat(f()));
   p.scrollTop = sc;
 };
@@ -546,6 +549,50 @@ UI.pCfg = () => {
     recipe()];
 };
 
+// ---------------- CODE tab ----------------
+function area(val, set, rows, ph) {
+  const t = el('textarea', { class: 'code', rows, placeholder: ph || '', spellcheck: false, autocapitalize: 'off', autocomplete: 'off', autocorrect: 'off' });
+  t.value = val || ''; let dirty = false;
+  t.onfocus = () => { dirty = false; };
+  t.oninput = () => { if (!dirty) { S.snap(); dirty = true; } set(t.value); S.P.updated = Date.now(); S.saveSoon(); };
+  t.onblur = () => UI.header();
+  t.onkeydown = e => { if (e.key === 'Tab') { e.preventDefault(); const p = t.selectionStart; t.setRangeText('  ', p, t.selectionEnd, 'end'); t.oninput(); } };
+  return t;
+}
+UI.pCode = () => {
+  const a = S.A(), P = S.P, K = S.code(a), out = [];
+  const trig = el('div');
+  Object.entries(S.TRIGGERS[a.kind]).forEach(([k, [label, who, ex]]) => {
+    const n = S.cmdList(K[k]).length;
+    const ta = area(K[k], v => { K[k] = v; }, Math.max(2, Math.min(8, String(K[k] || '').split('\n').length + 1)), 'เช่น ' + ex[0]);
+    trig.append(el('div', { class: 'trig' },
+      el('div', { class: 'row', style: 'justify-content:space-between' }, el('b', null, label), n ? el('span', { class: 'good', style: 'font-size:12px' }, n + ' คำสั่ง') : null),
+      note(who), ta,
+      k === 'tick' ? el('div', { class: 'row' }, el('span', { class: 'muted' }, 'ทุก ๆ'), el('div', { style: 'width:80px' }, num(K.every || 1, v => { K.every = Math.max(0.05, v); }, { min: 0.05 })), el('span', { class: 'muted' }, 'วินาที')) : null,
+      el('div', { class: 'chips' }, ...ex.map(c => btn('+ ' + c, () => { S.snap(); K[k] = (String(K[k] || '').replace(/\s+$/, '') + '\n' + c).replace(/^\n/, ''); S.changed('code'); }, 'sm ex')))
+    ));
+  });
+  out.push(sec('⚡ คำสั่งของ ' + (a.name || a.key) + ' — ทำงานเมื่อ...',
+    note('พิมพ์คำสั่ง Minecraft บรรทัดละ 1 คำสั่ง (ไม่ต้องใส่ /) • บรรทัดที่ขึ้นต้นด้วย # คือโน้ต • กดปุ่ม + เพื่อแทรกตัวอย่าง • ใช้ได้ทั้ง Bedrock และ Java'),
+    trig));
+  const err = S.checkJS(P.script);
+  const status = el('div', { class: 'muted ' + (err ? 'err' : 'good') }, P.script && P.script.trim() ? (err ? '❌ ' + err : '✅ ไม่พบจุดผิดของไวยากรณ์') : 'ยังไม่มีสคริปต์');
+  const js = area(P.script, v => { P.script = v; }, 14, '// เขียน JavaScript ด้วย @minecraft/server\nimport { world } from "@minecraft/server";\n');
+  out.push(sec('📜 สคริปต์ JavaScript (ขั้นสูง • Bedrock)',
+    note('ทั้งโปรเจกต์ใช้ไฟล์เดียว • import จาก "@minecraft/server" และ "@minecraft/server-ui" ได้ • ทำงานพร้อมคำสั่งด้านบน'),
+    js, status,
+    tools(btn('✅ ตรวจโค้ด', () => UI.render(), 'sm ok'),
+      btn('🧹 ล้าง', () => { if (!confirm('ลบสคริปต์ทั้งหมด?')) return; S.snap(); P.script = ''; S.changed('code'); }, 'sm danger')),
+    note('แทรกตัวอย่าง:'),
+    el('div', { class: 'chips' }, ...S.JS_EXAMPLES(P).map(([l, c]) => btn(l, () => { S.snap(); P.script = S.mergeJS(P.script, c); S.changed('code'); }, 'sm'))),
+    row('API เวอร์ชัน', txt(P.apiVer || S.API_VER, v => { P.apiVer = /^\d+\.\d+\.\d+(-beta)?$/.test(v) ? v : S.API_VER; })),
+    note('@minecraft/server ' + S.API_VER + ' ใช้กับ Minecraft 1.20.80 ขึ้นไป • ถ้าใช้ API แบบ beta ต้องเปิด "Beta APIs" ในโลก')));
+  out.push(sec('📖 ทริค', note('@s = ตัวที่ถูกอ้างถึงในแต่ละช่อง • @p = ผู้เล่นใกล้สุด • @a = ผู้เล่นทุกคน • @e[type=zombie,r=8] = ซอมบี้ในรัศมี 8 บล็อก'),
+    note('~ ~ ~ = ตำแหน่งปัจจุบัน • ^ ^ ^5 = ข้างหน้า 5 บล็อกตามทิศที่มอง'),
+    note('Java: แปลง effect/xp ให้อัตโนมัติ แต่ชื่อเสียง (playsound) และอนุภาค (particle) ของ Bedrock กับ Java ไม่เหมือนกัน • สคริปต์ JavaScript ไม่มีใน Java')));
+  return out;
+};
+
 // ---------------- EXPORT tab ----------------
 UI.exportAddon = (mode) => {
   const v = S.validate(S.P);
@@ -631,6 +678,7 @@ UI.init = () => {
   S.on('change', () => { S.View.build(S.A()); UI.applyPose(); UI.render(); S.Paint.draw(); });
   S.on('anim', () => { UI.applyPose(); UI.render(); });
   S.on('export', () => UI.render());
+  S.on('code', () => UI.render());
   S.on('sel', () => { S.View.highlight(); S.Paint.draw(); UI.render(); });
   S.on('tex', () => { const a = S.A(); if (a) S.View.texUpdated(a); S.Paint.draw(); UI.header(); });
   S.on('texpaint', a => { S.View.texUpdated(a); S.Paint.draw(); });

@@ -112,8 +112,14 @@ ${body}}
     G.push('        this.goalSelector.add(7, new LookAroundGoal(this));');
     if (hostile || neutral) G.push('        this.targetSelector.add(1, new RevengeGoal(this));');
     if (hostile) G.push('        this.targetSelector.add(2, new ActiveTargetGoal<>(this, PlayerEntity.class, true));');
+    const K = S.code(a), tickN = Math.max(1, Math.round((+K.every || 1) * 20));
     return `package ${pkg}.entity;
 
+import ${pkg}.Cmd;
+import net.minecraft.entity.damage.DamageSource;
+import net.minecraft.nbt.NbtCompound;
+import net.minecraft.util.ActionResult;
+import net.minecraft.util.Hand;
 import net.minecraft.entity.AnimationState;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
@@ -131,6 +137,9 @@ import net.minecraft.world.World;
 public class ${cls}Entity extends PathAwareEntity {
     public final AnimationState idleAnimationState = new AnimationState();
     public final AnimationState attackAnimationState = new AnimationState();
+    private static final String[] SPAWN = ${J.cmdArr(K.spawn)}, TICK = ${J.cmdArr(K.tick)}, HURT = ${J.cmdArr(K.hurt)},
+            ATTACK = ${J.cmdArr(K.attack)}, DEATH = ${J.cmdArr(K.death)}, INTERACT = ${J.cmdArr(K.interact)};
+    private boolean studioSpawned;
 
     public ${cls}Entity(EntityType<? extends PathAwareEntity> type, World world) {
         super(type, world);
@@ -155,7 +164,45 @@ ${G.join('\n')}
         super.tick();
         if (this.getWorld().isClient()) {
             this.idleAnimationState.startIfNotRunning(this.age);
+            return;
         }
+        if (!this.studioSpawned) {
+            this.studioSpawned = true;
+            Cmd.as(this, SPAWN);
+        }
+        if (TICK.length > 0 && this.age % ${tickN} == 0) Cmd.as(this, TICK);
+    }
+
+    @Override
+    public boolean damage(DamageSource source, float amount) {
+        boolean hurt = super.damage(source, amount);
+        if (hurt && !this.getWorld().isClient()) Cmd.as(this, HURT);
+        return hurt;
+    }
+
+    @Override
+    public void onDeath(DamageSource source) {
+        if (!this.getWorld().isClient()) Cmd.as(this, DEATH);
+        super.onDeath(source);
+    }
+
+    @Override
+    protected ActionResult interactMob(PlayerEntity player, Hand hand) {
+        if (INTERACT.length == 0) return super.interactMob(player, hand);
+        if (!this.getWorld().isClient() && hand == Hand.MAIN_HAND) Cmd.as(player, INTERACT);
+        return ActionResult.success(this.getWorld().isClient());
+    }
+
+    @Override
+    public void writeCustomDataToNbt(NbtCompound nbt) {
+        super.writeCustomDataToNbt(nbt);
+        nbt.putBoolean("StudioSpawned", this.studioSpawned);
+    }
+
+    @Override
+    public void readCustomDataFromNbt(NbtCompound nbt) {
+        super.readCustomDataFromNbt(nbt);
+        this.studioSpawned = nbt.getBoolean("StudioSpawned");
     }
 
     @Override
@@ -163,6 +210,7 @@ ${G.join('\n')}
         boolean hit = super.tryAttack(target);
         if (hit) {
             this.getWorld().sendEntityStatus(this, (byte) 4);
+            Cmd.as(target, ATTACK);
         }
         return hit;
     }
@@ -225,17 +273,25 @@ import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.attribute.EntityAttribute;
 import net.minecraft.entity.attribute.EntityAttributeModifier;
 import net.minecraft.entity.attribute.EntityAttributes;
+import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
+import net.minecraft.util.Hand;
+import net.minecraft.util.TypedActionResult;
+import net.minecraft.world.World;
+import ${pkg}.Cmd;
 
-/** Item with optional attack damage and enchantment glint. */
+/** Item with optional attack damage, enchantment glint and Mod Studio commands on use / hit. */
 public class StudioItem extends Item {
     private final boolean glint;
+    private final String[] useCmds, hitCmds;
     private final Multimap<EntityAttribute, EntityAttributeModifier> modifiers;
 
-    public StudioItem(Settings settings, double damage, boolean glint) {
+    public StudioItem(Settings settings, double damage, boolean glint, String[] useCmds, String[] hitCmds) {
         super(settings);
         this.glint = glint;
+        this.useCmds = useCmds;
+        this.hitCmds = hitCmds;
         this.modifiers = damage > 0
                 ? ImmutableMultimap.of(EntityAttributes.GENERIC_ATTACK_DAMAGE,
                     new EntityAttributeModifier(ATTACK_DAMAGE_MODIFIER_ID, "Weapon modifier", damage, EntityAttributeModifier.Operation.ADDITION))
@@ -253,10 +309,25 @@ public class StudioItem extends Item {
     }
 
     @Override
+    public TypedActionResult<ItemStack> use(World world, PlayerEntity user, Hand hand) {
+        if (this.useCmds.length == 0 || this.isFood()) return super.use(world, user, hand);
+        if (!world.isClient()) Cmd.as(user, this.useCmds);
+        return TypedActionResult.success(user.getStackInHand(hand), world.isClient());
+    }
+
+    @Override
+    public ItemStack finishUsing(ItemStack stack, World world, LivingEntity user) {
+        ItemStack result = super.finishUsing(stack, world, user);
+        if (this.isFood() && !world.isClient()) Cmd.as(user, this.useCmds);
+        return result;
+    }
+
+    @Override
     public boolean postHit(ItemStack stack, LivingEntity target, LivingEntity attacker) {
         if (stack.isDamageable()) {
             stack.damage(1, attacker, e -> e.sendEquipmentBreakStatus(EquipmentSlot.MAINHAND));
         }
+        if (!attacker.getWorld().isClient()) Cmd.as(target, this.hitCmds);
         return true;
     }
 }
@@ -284,7 +355,7 @@ public class StudioItem extends Item {
     blocks.forEach(a => {
       const c = a.cfg, U = J.upper(a.key);
       const see = c.custom || c.render !== 'opaque';
-      F.push(`    public static final Block ${U} = Registry.register(Registries.BLOCK, id("${a.key}"), new Block(AbstractBlock.Settings.create().strength(${f(c.destroy)}, ${f(c.resist)})${c.light > 0 ? `.luminance(state -> ${S.clamp(c.light | 0, 0, 15)})` : ''}${+c.friction !== 0.4 ? `.slipperiness(${f(1 - S.clamp(+c.friction, 0, 0.9))})` : ''}${see ? '.nonOpaque()' : ''}));`);
+      F.push(`    public static final Block ${U} = Registry.register(Registries.BLOCK, id("${a.key}"), new StudioBlock(AbstractBlock.Settings.create().strength(${f(c.destroy)}, ${f(c.resist)})${c.light > 0 ? `.luminance(state -> ${S.clamp(c.light | 0, 0, 15)})` : ''}${+c.friction !== 0.4 ? `.slipperiness(${f(1 - S.clamp(+c.friction, 0, 0.9))})` : ''}${see ? '.nonOpaque()' : ''}, ${['place', 'break', 'interact', 'stand'].map(k => J.cmdArr(S.code(a)[k])).join(', ')}));`);
       F.push(`    public static final Item ${U}_ITEM = Registry.register(Registries.ITEM, id("${a.key}"), new BlockItem(${U}, new Item.Settings()));`);
       INIT.push(`        ItemGroupEvents.modifyEntriesEvent(ItemGroups.${groupOf[c.category] || 'BUILDING_BLOCKS'}).register(e -> e.add(${U}_ITEM));`);
     });
@@ -293,7 +364,7 @@ public class StudioItem extends Item {
       let st = 'new Item.Settings()';
       st += c.durability > 0 ? `.maxDamage(${c.durability | 0})` : `.maxCount(${S.clamp(c.stack | 0, 1, 64)})`;
       if (c.food) st += `.food(new FoodComponent.Builder().hunger(${c.nutrition | 0}).saturationModifier(${f(c.saturation)})${c.alwaysEat ? '.alwaysEdible()' : ''}.build())`;
-      F.push(`    public static final Item ${U} = Registry.register(Registries.ITEM, id("${a.key}"), new StudioItem(${st}, ${(+c.damage || 0).toFixed(1)}, ${!!c.glint}));`);
+      F.push(`    public static final Item ${U} = Registry.register(Registries.ITEM, id("${a.key}"), new StudioItem(${st}, ${(+c.damage || 0).toFixed(1)}, ${!!c.glint}, ${J.cmdArr(S.code(a).use)}, ${J.cmdArr(S.code(a).hit)}));`);
       const g = c.food ? 'FOOD_AND_DRINK' : (c.damage > 0 ? 'COMBAT' : (groupOf[c.category] || 'INGREDIENTS'));
       INIT.push(`        ItemGroupEvents.modifyEntriesEvent(ItemGroups.${g}).register(e -> e.add(${U}));`);
     });
@@ -304,7 +375,7 @@ public class StudioItem extends Item {
       'net.fabricmc.fabric.api.object.builder.v1.entity.FabricDefaultAttributeRegistry', 'net.fabricmc.fabric.api.object.builder.v1.entity.FabricEntityTypeBuilder',
       'net.minecraft.entity.EntityDimensions', 'net.minecraft.entity.EntityType', 'net.minecraft.entity.SpawnGroup', 'net.minecraft.entity.SpawnRestriction',
       'net.minecraft.entity.mob.MobEntity', 'net.minecraft.item.SpawnEggItem', 'net.minecraft.world.Heightmap', `${pkg}.entity.*`);
-    if (blocks.length) imp.push('net.minecraft.block.AbstractBlock', 'net.minecraft.block.Block', 'net.minecraft.item.BlockItem');
+    if (blocks.length) imp.push('net.minecraft.block.AbstractBlock', 'net.minecraft.block.Block', 'net.minecraft.item.BlockItem', `${pkg}.block.StudioBlock`);
     if (items.length) imp.push('net.minecraft.item.FoodComponent', `${pkg}.item.StudioItem`);
     return `package ${pkg};
 
@@ -479,6 +550,8 @@ jobs:
     z.add(src + main + '.java', J.main(p, pkg, main));
     z.add(src + 'client/' + main + 'Client.java', J.client(p, pkg, main));
     if (items.length) z.add(src + 'item/StudioItem.java', J.studioItem(pkg));
+    z.add(src + 'Cmd.java', J.cmdClass(pkg));
+    if (blocks.length) z.add(src + 'block/StudioBlock.java', J.studioBlock(pkg));
     const lang = th => {
       const L = {};
       p.assets.forEach(a => {
@@ -544,6 +617,7 @@ jobs:
 ## ข้อจำกัด
 - การเลี้ยง/ขี่/ผสมพันธุ์ มีเฉพาะใน Bedrock
 - สูตร Molang ในแอนิเมชันถูกแปลงเป็นตัวเลขตามเวลาคีย์
+- คำสั่งในแท็บ 💻 ใช้ได้ทั้งสองภาค (แปลง effect/xp ให้อัตโนมัติ แต่ชื่อเสียง/อนุภาคของ Bedrock กับ Java ต่างกัน) • สคริปต์ JavaScript ใช้ได้เฉพาะ Bedrock
 - บล็อกโมเดลเองใน Java หมุนกล่องได้แกนเดียว ทีละ 22.5° และไม่ใช้การหมุนของกระดูก
 `);
     return z;

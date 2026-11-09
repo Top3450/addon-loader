@@ -6,8 +6,8 @@ android {
         applicationId 'th.top.addonloader'
         minSdk 21
         targetSdk 34
-        versionCode 4
-        versionName "3.0"
+        versionCode 5
+        versionName "3.1"
     }
     // fixed key so every new build installs over the old one
     signingConfigs {

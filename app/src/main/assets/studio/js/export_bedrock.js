@@ -234,11 +234,17 @@ S.Bedrock = {
     if (c.drop !== 'self') comp['minecraft:loot'] = `loot_tables/blocks/${a.key}.json`;
     return { format_version: '1.20.80', 'minecraft:block': { description: { identifier: S.Bedrock.id(p, a), menu_category: { category: c.category || 'construction' } }, components: comp } };
   },
-  manifest(p, kind) {
+  manifest(p, kind, scr) {
     const v = p.version.slice(), u = p.uuids;
     const h = { name: `${p.name} ${kind}`, description: p.desc || '', uuid: kind === 'BP' ? u.bpH : u.rpH, version: v, min_engine_version: S.Bedrock.ENGINE };
     const m = { format_version: 2, header: h, modules: [{ type: kind === 'BP' ? 'data' : 'resources', uuid: kind === 'BP' ? u.bpM : u.rpM, version: v }] };
     if (kind === 'BP') m.dependencies = [{ uuid: u.rpH, version: v }];
+    if (kind === 'BP' && scr) {
+      if (!u.scM) u.scM = S.uuid();
+      m.modules.push({ type: 'script', language: 'javascript', uuid: u.scM, version: v, entry: 'scripts/main.js' });
+      m.dependencies.push({ module_name: '@minecraft/server', version: p.apiVer || S.API_VER });
+      if (scr.ui) m.dependencies.push({ module_name: '@minecraft/server-ui', version: p.uiApiVer || S.UI_API_VER });
+    }
     return m;
   },
   packIcon(p) {
@@ -262,7 +268,9 @@ S.Bedrock = {
   },
   build(p) {
     const z = new S.Zip(), BP = `${p.ns}_BP/`, RP = `${p.ns}_RP/`;
-    z.json(BP + 'manifest.json', S.Bedrock.manifest(p, 'BP'));
+    const scr = S.Bedrock.scripts ? S.Bedrock.scripts(p) : null;
+    z.json(BP + 'manifest.json', S.Bedrock.manifest(p, 'BP', scr));
+    if (scr) { z.add(BP + 'scripts/main.js', scr.main); if (scr.user) z.add(BP + 'scripts/user.js', scr.user); }
     z.json(RP + 'manifest.json', S.Bedrock.manifest(p, 'RP'));
     const icon = S.Bedrock.packIcon(p); if (icon) { z.add(BP + 'pack_icon.png', icon); z.add(RP + 'pack_icon.png', icon); }
     z.json(RP + 'texts/languages.json', ['en_US', 'th_TH']);
