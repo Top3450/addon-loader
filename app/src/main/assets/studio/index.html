@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Mod Studio TH</title>
+<style>
+:root{--bg:#1d2b1f;--card:#2b3d2d;--card2:#34493a;--line:#4a6450;--txt:#eef5ee;--dim:#a9bfaa;--acc:#8fe388;--blue:#3a6ea5;--red:#c0392b;--yel:#f1c40f;--x:#e0574f;--y:#6fcf5a;--z:#4f8fe0}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);font:14px system-ui,-apple-system,"Noto Sans Thai",sans-serif;overflow:hidden;touch-action:manipulation}
+#app{display:flex;flex-direction:column;height:100vh;height:100dvh}
+header{display:flex;align-items:center;gap:6px;padding:6px 8px;background:#152016;border-bottom:1px solid var(--line);flex:0 0 auto}
+header .grow{flex:1;min-width:0}
+#assetBtn{width:100%;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+button,select,input{font:inherit;color:var(--txt)}
+button{background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:7px 10px;cursor:pointer;min-height:36px}
+button:active{filter:brightness(1.3)}
+button.pri{background:var(--blue);border-color:#5b8fc6}
+button.ok{background:#3f8f3f;border-color:#5cb85c}
+button.danger{background:var(--red);border-color:#e05a4c}
+button.on{background:var(--acc);color:#102010;border-color:var(--acc);font-weight:600}
+button.sm{padding:4px 8px;min-height:30px;font-size:13px}
+button:disabled{opacity:.4}
+select,input[type=text],input[type=number]{background:#142016;border:1px solid var(--line);border-radius:7px;padding:6px 7px;min-height:34px;width:100%}
+input[type=number]{-moz-appearance:textfield}
+input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+input[type=color]{width:44px;height:36px;border:1px solid var(--line);border-radius:7px;background:none;padding:2px}
+input[type=range]{width:100%}
+input[type=checkbox]{width:20px;height:20px;accent-color:var(--acc)}
+#stage{position:relative;flex:0 0 44%;background:#0f1810;border-bottom:1px solid var(--line);overflow:hidden;transition:flex-basis .2s}
+#stage.big{flex-basis:64%}
+#stage canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block}
+#stageTools{position:absolute;right:6px;top:6px;display:flex;flex-direction:column;gap:5px;z-index:3}
+#stageTools button{padding:4px 8px;min-height:32px;background:rgba(43,61,45,.85)}
+#stageInfo{position:absolute;left:8px;bottom:6px;font-size:12px;color:var(--dim);pointer-events:none;z-index:3;text-shadow:0 1px 2px #000}
+#panel{flex:1 1 auto;overflow-y:auto;padding:10px 10px 30px;-webkit-overflow-scrolling:touch}
+nav{display:flex;flex:0 0 auto;background:#152016;border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;border:0;border-radius:0;background:none;padding:6px 2px;font-size:11px;line-height:1.3;color:var(--dim);min-height:52px}
+nav button b{display:block;font-size:20px;font-weight:400}
+nav button.on{color:var(--acc);background:#1f3021;font-weight:600}
+.sec{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:10px}
+.sec h3{margin:0 0 8px;font-size:15px;color:var(--acc);display:flex;align-items:center;gap:6px}
+.row{display:flex;gap:6px;align-items:center;margin:6px 0;flex-wrap:wrap}
+.row>label.l{flex:0 0 96px;color:var(--dim);font-size:13px}
+.row>.f{flex:1;min-width:0}
+.tools{display:flex;gap:6px;flex-wrap:wrap}
+.vec{display:flex;gap:4px;flex:1;min-width:0}
+.vec .ax{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.vec .ax input{text-align:center;padding:5px 2px}
+.vec .ax .pm{display:flex;gap:2px}
+.vec .ax .pm button{flex:1;padding:0;min-height:28px;font-size:15px}
+.ax.x input{border-color:var(--x)}.ax.y input{border-color:var(--y)}.ax.z input{border-color:var(--z)}
+.tree{display:flex;flex-direction:column;gap:3px;max-height:220px;overflow-y:auto}
+.tree div{padding:7px 8px;border-radius:7px;background:var(--card2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.tree div.sel{background:#5d6f2a;outline:1px solid var(--yel)}
+.tree div.bsel{background:#2d5562}
+.muted{color:var(--dim);font-size:12.5px;line-height:1.5}
+.warn{color:#ffcf5a}.err{color:#ff8a7a}.good{color:var(--acc)}
+.swatches{display:flex;flex-wrap:wrap;gap:4px}
+.swatches i{width:28px;height:28px;border-radius:6px;border:2px solid #0006;display:inline-block;cursor:pointer}
+.swatches i.on{border-color:#fff}
+.timeline{position:relative;height:auto;background:#142016;border:1px solid var(--line);border-radius:8px;padding:4px 0;user-select:none}
+.tl-row{position:relative;height:22px;margin:2px 0}
+.tl-row span.lab{position:absolute;left:4px;top:3px;font-size:11px;color:var(--dim);pointer-events:none}
+.tl-row i{position:absolute;top:5px;width:12px;height:12px;margin-left:-6px;transform:rotate(45deg);border-radius:2px;cursor:pointer}
+.tl-cursor{position:absolute;top:0;bottom:0;width:2px;background:var(--yel);pointer-events:none}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.grid3 input{text-align:center;font-size:12px;padding:4px}
+.modal{position:fixed;inset:0;background:#000a;display:flex;align-items:flex-end;justify-content:center;z-index:50}
+.modal .box{background:var(--bg);border:1px solid var(--line);border-radius:14px 14px 0 0;width:100%;max-width:640px;max-height:88dvh;overflow-y:auto;padding:14px 12px 24px}
+.modal h2{margin:0 0 10px;font-size:18px;color:var(--acc)}
+.plist{display:flex;flex-direction:column;gap:6px}
+.pitem{display:flex;gap:6px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px}
+.pitem .n{flex:1;min-width:0}
+.pitem .n b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+#toast{position:fixed;left:50%;bottom:80px;transform:translateX(-50%);background:#000d;color:#fff;padding:9px 14px;border-radius:10px;z-index:99;max-width:90%;font-size:13.5px;pointer-events:none;opacity:0;transition:opacity .2s}
+#toast.show{opacity:1}
+pre.log{background:#0d150e;border-radius:8px;padding:8px;font-size:12px;white-space:pre-wrap;max-height:200px;overflow:auto;margin:6px 0}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <button id="homeBtn" title="โปรเจกต์">☰</button>
+    <div class="grow"><button id="assetBtn">—</button></div>
+    <button id="undoBtn" title="ย้อนกลับ">↶</button>
+    <button id="redoBtn" title="ทำซ้ำ">↷</button>
+  </header>
+  <div id="stage">
+    <canvas id="view3d"></canvas>
+    <canvas id="paint2d" style="display:none"></canvas>
+    <div id="stageTools">
+      <button id="bigBtn" title="ขยายจอ">⤢</button>
+      <button id="resetCamBtn" title="รีเซ็ตมุมกล้อง">🎯</button>
+      <button id="paint3dBtn" title="ระบายบนโมเดล" style="display:none">🖌</button>
+    </div>
+    <div id="stageInfo"></div>
+  </div>
+  <div id="panel"></div>
+  <nav id="tabs">
+    <button data-tab="model" class="on"><b>🧊</b>โมเดล</button>
+    <button data-tab="paint"><b>🎨</b>เท็กซ์เจอร์</button>
+    <button data-tab="anim"><b>🎬</b>แอนิเมชัน</button>
+    <button data-tab="cfg"><b>⚙️</b>ตั้งค่า</button>
+    <button data-tab="export"><b>📦</b>ส่งออก</button>
+  </nav>
+</div>
+<div id="toast"></div>
+<input type="file" id="filePick" style="display:none">
+<script src="js/three.min.js"></script>
+<script src="js/core.js"></script>
+<script src="js/zip.js"></script>
+<script src="js/view3d.js"></script>
+<script src="js/paint.js"></script>
+<script src="js/export_bedrock.js"></script>
+<script src="js/export_java.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>

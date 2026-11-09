@@ -59,6 +59,7 @@ public class MainActivity extends Activity {
         status.setGravity(Gravity.CENTER);
         status.setPadding(0, 32, 0, 32);
         root.addView(status);
+        root.addView(button("🛠 Mod Studio — สร้างม็อดเอง", Color.rgb(126, 87, 194), v -> startActivity(new Intent(this, StudioActivity.class))));
         root.addView(button("📂 เพิ่ม Addon จากเครื่อง", BLUE, v -> pick()));
         root.addView(button("🎮 เล่น Minecraft", RED, v -> play()));
 
@@ -88,6 +89,7 @@ public class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        refreshLibrary();
         refreshGame();
     }
 
@@ -291,35 +293,10 @@ public class MainActivity extends Activity {
 
     private void install(File f) {
         if (!f.isFile()) { toast("ไม่พบไฟล์ในคลัง"); refreshLibrary(); return; }
-        if (getPackageManager().getLaunchIntentForPackage(MC) == null) { toast("ยังไม่ได้ติดตั้ง Minecraft"); store(); return; }
-        Uri u = Uri.parse("content://" + AddonProvider.AUTH + "/" + Uri.encode(f.getName()));
-        Intent i = new Intent(Intent.ACTION_VIEW);
-        i.setDataAndType(u, "application/octet-stream");
-        i.setPackage(MC);
-        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-        try {
-            startActivity(i);
-            toast("ส่งเข้า Minecraft แล้ว รอเกมนำเข้าสักครู่");
-        } catch (ActivityNotFoundException e) {
-            i.setPackage(null);
-            try { startActivity(Intent.createChooser(i, "เลือก Minecraft")); }
-            catch (ActivityNotFoundException e2) { toast("Minecraft ไม่รับไฟล์นี้"); }
-        }
+        Mc.install(this, f);
     }
 
-    private void play() {
-        Intent i = getPackageManager().getLaunchIntentForPackage(MC);
-        if (i == null) { toast("ยังไม่ได้ติดตั้ง Minecraft"); store(); return; }
-        startActivity(i);
-    }
-
-    private void store() {
-        try {
-            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=" + MC)));
-        } catch (ActivityNotFoundException e) {
-            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=" + MC)));
-        }
-    }
+    private void play() { Mc.play(this); }
 
     // ---------------- packs installed in the game (via a granted folder) ----------------
     private void pickTree() {

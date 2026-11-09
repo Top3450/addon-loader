@@ -24,6 +24,9 @@
                 <data android:mimeType="application/x-zip-compressed" />
             </intent-filter>
         </activity>
+        <activity android:name=".StudioActivity" android:exported="false" android:hardwareAccelerated="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
+            android:windowSoftInputMode="adjustResize" android:label="Mod Studio TH" />
         <provider android:name=".AddonProvider" android:authorities="th.top.addonloader.files"
             android:exported="false" android:grantUriPermissions="true" />
     </application>
