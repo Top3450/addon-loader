@@ -179,15 +179,17 @@ S.View = {
   // ---------- input ----------
   _bindInput() {
     const cv = this.cv, pts = new Map();
-    let start = null, gesture = null, painting = false;
+    let start = null, gesture = null, painting = false, manip = null;
     const pinch = () => { const [a, b] = [...pts.values()]; return { d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 }; };
     cv.addEventListener('pointerdown', e => {
       cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pts.size === 1) {
         start = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false };
         if (this.paint && this.onPaint) { painting = true; this.onPaint('start', this.pick(e.clientX, e.clientY)); }
+        else if (this.manip && this.onManip && this.onManip('start', { hit: this.pick(e.clientX, e.clientY) })) manip = { x0: e.clientX, y0: e.clientY };
       } else if (pts.size === 2) {
         if (painting && this.onPaint) this.onPaint('cancel'); painting = false;
+        if (manip) { this.onManip('cancel'); manip = null; }
         gesture = pinch(); start = null;
       }
     });
@@ -197,6 +199,7 @@ S.View = {
       if (pts.size === 1) {
         if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 7) start.moved = true;
         if (painting) { this.onPaint('move', this.pick(e.clientX, e.clientY)); return; }
+        if (manip) { this.onManip('move', { dx: e.clientX - manip.x0, dy: e.clientY - manip.y0 }); return; }
         if (start && !start.moved) return;
         this.orb.theta -= dx * 0.009; this.orb.phi = S.clamp(this.orb.phi + dy * 0.009, -1.5, 1.5); this.dirty = true;
       } else if (pts.size === 2 && gesture) {
@@ -211,6 +214,7 @@ S.View = {
     const up = e => {
       if (!pts.has(e.pointerId)) return;
       pts.delete(e.pointerId);
+      if (manip && pts.size === 0) { manip = null; start = null; this.onManip('end'); return; }
       if (painting && pts.size === 0) { painting = false; this.onPaint('end'); }
       else if (start && pts.size === 0 && !start.moved && performance.now() - start.t < 400 && !this.paint && this.onTap) this.onTap(this.pick(e.clientX, e.clientY));
       if (pts.size < 2) gesture = null;
@@ -219,6 +223,17 @@ S.View = {
     cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
     cv.addEventListener('wheel', e => { e.preventDefault(); this.orb.r = S.clamp(this.orb.r * (e.deltaY > 0 ? 1.12 : 0.89), 6, 600); this.dirty = true; }, { passive: false });
     cv.addEventListener('contextmenu', e => e.preventDefault());
+  },
+  /** Screen drag (px) -> displacement in render space at the orbit target's depth. */
+  dragVec(dx, dy) {
+    this.cam.updateMatrixWorld();
+    const R = new THREE.Vector3().setFromMatrixColumn(this.cam.matrixWorld, 0), U = new THREE.Vector3().setFromMatrixColumn(this.cam.matrixWorld, 1);
+    const k = 2 * this.orb.r * Math.tan(this.cam.fov * Math.PI / 360) / Math.max(1, this.cv.clientHeight);
+    return R.multiplyScalar(dx * k).add(U.multiplyScalar(-dy * k));
+  },
+  camBasis() {
+    this.cam.updateMatrixWorld();
+    return { c: this.cam.position.clone().sub(this.orb.target).normalize(), R: new THREE.Vector3().setFromMatrixColumn(this.cam.matrixWorld, 0) };
   },
   _pan(dx, dy) {
     const o = this.orb, k = o.r * 0.0016;

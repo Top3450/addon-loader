@@ -2,7 +2,7 @@
 /* Mod Studio TH — UI: tabs, panels, modals, project/asset management */
 (() => {
 const $ = S.$, el = S.el;
-const UI = S.UI = { tab: 'model', step: 1, rstep: 15, playing: false, t: 0, animId: null, paint3d: false, lastBuild: null };
+const UI = S.UI = { manip: '', axis: 'free', drag: null, tab: 'model', step: 1, rstep: 15, playing: false, t: 0, animId: null, paint3d: false, lastBuild: null };
 const panel = () => $('#panel');
 const KIND_ICON = { entity: '🐾', item: '🗡', block: '🧱' };
 const KIND_TH = { entity: 'มอบ/สิ่งมีชีวิต', item: 'ไอเทม', block: 'บล็อก' };
@@ -188,6 +188,12 @@ UI.stage = () => {
   $('#paint3dBtn').title = UI.paint3d ? 'กลับไปวาดแบบ 2D' : 'ระบายบนโมเดล 3D';
   S.View.paint = UI.tab === 'paint' && UI.paint3d;
   S.View.showSel = UI.tab === 'model' || UI.tab === 'anim';
+  const canManip = (UI.tab === 'model' || UI.tab === 'anim') && a && a.model && (a.kind === 'entity' || a.cfg.custom);
+  S.View.manip = canManip ? UI.manip : '';
+  ['moveBtn', 'rotBtn', 'axisBtn'].forEach(id => { $('#' + id).style.display = canManip ? 'block' : 'none'; });
+  $('#moveBtn').classList.toggle('on', UI.manip === 'move'); $('#rotBtn').classList.toggle('on', UI.manip === 'rot');
+  $('#axisBtn').textContent = { free: '✳️', x: 'X', y: 'Y', z: 'Z' }[UI.axis];
+  $('#axisBtn').style.color = { free: '', x: '#e0574f', y: '#6fcf5a', z: '#4f8fe0' }[UI.axis];
   S.View.highlight();
   if (paint2d) { S.Paint.resize(); } else S.View.resize();
   const info = $('#stageInfo');
@@ -196,6 +202,7 @@ UI.stage = () => {
   else if (UI.tab === 'anim') info.textContent = 'แตะโมเดลเพื่อเลือกกระดูก';
   else if (UI.tab === 'code') info.textContent = 'พิมพ์คำสั่งว่า ' + (a.name || a.key) + ' ทำอะไรได้';
   else info.textContent = a.kind === 'entity' || a.cfg.custom ? 'แตะกล่องเพื่อเลือก • ลากหมุน • สองนิ้วเลื่อน/ซูม' : 'ลากหมุน • สองนิ้วซูม';
+  if (canManip && UI.manip) info.textContent = (UI.manip === 'move' ? '✋ ลากชิ้นส่วนเพื่อย้าย' : '🔄 ลากชิ้นส่วนเพื่อหมุน') + (UI.axis === 'free' ? '' : ' (แกน ' + UI.axis.toUpperCase() + ')') + ' • ลากที่ว่าง = หมุนกล้อง' + (UI.tab === 'anim' ? ' • ใส่คีย์ให้อัตโนมัติ' : '');
   UI.applyPose();
 };
 UI.applyPose = () => {
@@ -218,6 +225,70 @@ UI.render = () => {
   const f = { model: UI.pModel, paint: UI.pPaint, anim: UI.pAnim, cfg: UI.pCfg, code: UI.pCode, export: UI.pExport }[UI.tab];
   p.replaceChildren(...[].concat(f()));
   p.scrollTop = sc;
+};
+
+// ---------------- finger drag: move / rotate parts ----------------
+UI.onManip = (phase, d) => {
+  const a = S.A();
+  if (phase === 'start') {
+    const h = d.hit; if (!a || !a.model || !h || !h.cubeId) return false;
+    const anim = UI.tab === 'anim' ? UI.anim() : null;
+    if (UI.tab === 'anim' && !anim) { S.toast('สร้างท่าก่อน แล้วค่อยลากจัดท่า'); return false; }
+    if (UI.tab === 'anim') { if (h.boneId !== S.sel.bone || S.sel.cube) S.sel = { bone: h.boneId, cube: null }; }
+    else if (h.cubeId !== S.sel.cube && !(S.sel.cube == null && h.boneId === S.sel.bone)) S.sel = { bone: h.boneId, cube: h.cubeId };
+    S.snap();
+    const ch = UI.manip === 'move' ? 'pos' : 'rot', def = ch === 'pos' ? 0 : 0;
+    let base = null;
+    if (anim) { const tr = S.track(anim, S.sel.bone, ch), k = tr && tr.find(k => Math.abs(k.t - UI.t) < 0.0005);
+      base = k ? k.v.map(v => S.molang(v, UI.t)) : (S.sample(tr, UI.t) || [def, def, def]); }
+    UI.drag = { model: S.clone(a.model), tracks: anim ? S.clone(anim.tracks) : null, base, ch, moved: false };
+    S.View.highlight(); UI.applyPose();
+    return true;
+  }
+  const g = UI.drag; if (!g || !a) return;
+  const restore = () => { a.model = S.clone(g.model); const an = UI.anim(); if (g.tracks && an) an.tracks = S.clone(g.tracks); };
+  if (phase === 'cancel') { restore(); S.undoStack.pop(); UI.drag = null; S.View.build(a); UI.stage(); return; }
+  if (phase === 'end') {
+    UI.drag = null;
+    if (!g.moved) { S.undoStack.pop(); S.emit('sel'); UI.stage(); return; }
+    S.changed(UI.tab === 'anim' ? 'anim' : undefined); UI.stage(); return;
+  }
+  // move
+  const i = 'xyz'.indexOf(UI.axis);
+  let delta = [0, 0, 0];
+  if (UI.manip === 'move') {
+    const v = S.View.dragVec(d.dx, d.dy); delta = [-v.x, v.y, v.z];
+    if (i >= 0) delta = delta.map((x, j) => j === i ? x : 0);
+    const st = UI.tab === 'anim' ? Math.min(UI.step, 0.5) : UI.step;
+    delta = delta.map(x => S.round(Math.round(x / st) * st, 4));
+  } else {
+    const { c, R } = S.View.camBasis(), k = 0.6;
+    const yaw = -(Math.sign(c.z * R.x - c.x * R.z) || 1), pitch = -(Math.sign(c.z) || 1);
+    if (i < 0) { delta[1] = d.dx * k * yaw; delta[0] = d.dy * k * pitch; }
+    else if (i === 0) delta[0] = d.dy * k * pitch;
+    else if (i === 1) delta[1] = d.dx * k * yaw;
+    else delta[2] = d.dx * k * -pitch;
+    const st = UI.tab === 'anim' ? Math.min(UI.rstep, 5) : UI.rstep;
+    delta = delta.map(x => S.round(Math.round(x / st) * st, 3));
+  }
+  restore();
+  if (delta.some(v => v)) g.moved = true;
+  if (UI.tab === 'anim') {
+    const an = UI.anim(), nv = g.base.map((v, j) => S.round(v + delta[j], 3));
+    if (delta.some(v => v)) S.setKey(an, S.sel.bone, g.ch, UI.t, nv, UI.interp);
+    UI.applyPose();
+  } else {
+    const b = S.bone(a, S.sel.bone), c = S.sel.cube && b && b.cubes.find(x => x.id === S.sel.cube);
+    if (UI.manip === 'move') {
+      if (c) for (let j = 0; j < 3; j++) { c.origin[j] = S.round(c.origin[j] + delta[j], 4); c.pivot[j] = S.round(c.pivot[j] + delta[j], 4); }
+      else if (b) for (let j = 0; j < 3; j++) if (delta[j]) UI.moveBoneTree(a, b, j, delta[j]);
+    } else {
+      const t = c || b; if (t) t.rot = t.rot.map((v, j) => S.round(v + delta[j], 3));
+    }
+    S.View.build(a);
+  }
+  const lab = UI.manip === 'move' ? 'ย้าย' : 'หมุน', u = UI.manip === 'move' ? '' : '°';
+  $('#stageInfo').textContent = `${lab} ${delta.map((v, j) => 'XYZ'[j] + (v >= 0 ? '+' : '') + v + u).join('  ')}`;
 };
 
 // ---------------- MODEL tab ----------------
@@ -689,6 +760,10 @@ UI.init = () => {
   $('#bigBtn').onclick = () => { $('#stage').classList.toggle('big'); setTimeout(() => { S.View.resize(); S.Paint.resize(); }, 220); };
   $('#resetCamBtn').onclick = () => { if (UI.tab === 'paint' && !UI.paint3d) S.Paint.fit(); else S.View.frame(S.A()); };
   $('#paint3dBtn').onclick = () => { UI.paint3d = !UI.paint3d; UI.stage(); UI.render(); };
+  $('#moveBtn').onclick = () => { UI.manip = UI.manip === 'move' ? '' : 'move'; UI.stage(); };
+  $('#rotBtn').onclick = () => { UI.manip = UI.manip === 'rot' ? '' : 'rot'; UI.stage(); };
+  $('#axisBtn').onclick = () => { UI.axis = { free: 'x', x: 'y', y: 'z', z: 'free' }[UI.axis]; UI.stage(); };
+  S.View.onManip = UI.onManip;
   document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => UI.go(b.dataset.tab));
   document.addEventListener('keydown', e => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
